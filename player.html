@@ -133,7 +133,7 @@
     </div>
   </div>
 
-  <!-- Firebase SDK -->
+  <!-- Firebase SDK（compat版） -->
   <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
@@ -150,7 +150,7 @@
       storageBucket: "maisupo--atami.firebasestorage.app",
       messagingSenderId: "1069424112769",
       appId: "1:1069424112769:web:f78257f35834458f654980",
-     measurementId: "G-DB4S0K56Z4"
+      measurementId: "G-DB4S0K56Z4"
     };
 
     const app = firebase.initializeApp(firebaseConfig);
@@ -187,8 +187,14 @@
           if (!name) return alert("名前を入力してください");
 
           await profileRef.set({ name });
+
+          // 🔥 ここが今回の修正ポイント
           document.getElementById("nameModal").style.display = "none";
+          await loadOrCreateUserData();
+          renderBoard();
         };
+
+        return; // 名前未登録ならここで終了
       }
 
       // --- board がなければ作成 ---
