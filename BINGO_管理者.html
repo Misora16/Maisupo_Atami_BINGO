@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>ビンゴ管理画面（企画側）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 0;
+      padding: 10px;
+      background: #f5f5f5;
+    }
+
+    h2 {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+
+    #reader {
+      width: 100%;
+      margin: 0 auto 20px;
+    }
+
+    .card {
+      background: #fff;
+      padding: 12px;
+      margin-bottom: 12px;
+      border-radius: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    }
+
+    .card h3 {
+      margin: 0 0 6px 0;
+    }
+
+    .delete-btn {
+      margin-top: 8px;
+      padding: 6px 10px;
+      background: #ff4d4d;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>ビンゴ管理画面（企画側）</h2>
+
+  <h3>QRコード読み取り</h3>
+  <div id="reader"></div>
+  <div id="scanResult"></div>
+
+  <h3>参加者一覧</h3>
+  <div id="userList"></div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js"></script>
+
+  <!-- QR読み取りライブラリ -->
+  <script src="https://unpkg.com/html5-qrcode"></script>
+
+  <script>
+    // ===== Firebase 設定（あなたの値を反映済み） =====
+    const firebaseConfig = {
+      apiKey: "AIzaSyBqGqACvbsNgpsFlHnLo6tJGb54qKnSjPk",
+      authDomain: "maisupo--atami.firebaseapp.com",
+      projectId: "maisupo--atami",
+      storageBucket: "maisupo--atami.firebasestorage.app",
+      messagingSenderId: "1069424112769",
+      appId: "1:1069424112769:web:f78257f35834458f654980",
+      measurementId: "G-DB4S0K56Z4"
+    };
+
+    const app = firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // ===== QR読み取り開始 =====
+    function onScanSuccess(decodedText) {
+      document.getElementById("scanResult").innerHTML =
+        `<strong>読み取り成功：</strong> ${decodedText}`;
+
+      const params = new URLSearchParams(decodedText);
+      const uid = params.get("uid");
+      const code = params.get("code");
+
+      if (!uid || !code) {
+        alert("QRコードの形式が不正です");
+        return;
+      }
+
+      // Firestore 更新
+      db.collection("users").doc(uid)
+        .collection("bingo").doc("status")
+        .update({ [code]: true })
+        .then(() => {
+          alert(`UID: ${uid}\nマス ${code} を達成にしました`);
+          loadUsers();
+        });
+    }
+
+    const html5QrCode = new Html5Qrcode("reader");
+    html5QrCode.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: 250 },
+      onScanSuccess
+    );
+
+    // ===== 参加者一覧を読み込む =====
+    async function loadUsers() {
+      const userList = document.getElementById("userList");
+      userList.innerHTML = "";
+
+      const usersSnap = await db.collection("users").get();
+      const userDataList = [];
+
+      for (const doc of usersSnap.docs) {
+        const uid = doc.id;
+
+        const profileSnap = await db.collection("users").doc(uid)
+          .collection("bingo").doc("profile").get();
+
+        const statusSnap = await db.collection("users").doc(uid)
+          .collection("bingo").doc("status").get();
+
+        if (!profileSnap.exists || !statusSnap.exists) continue;
+
+        const name = profileSnap.data().name;
+        const status = statusSnap.data();
+
+        // 達成済みマス
+        const doneCodes = Object.keys(status).filter(k => status[k]);
+
+        // 達成数
+        const doneCount = doneCodes.length;
+
+        // ビンゴ数計算
+        const bingoCount = calcBingo(status);
+
+        userDataList.push({
+          uid,
+          name,
+          doneCodes,
+          doneCount,
+          bingoCount
+        });
+      }
+
+      // ===== ソート（ビンゴ数 → 達成数） =====
+      userDataList.sort((a, b) => {
+        if (b.bingoCount !== a.bingoCount) return b.bingoCount - a.bingoCount;
+        return b.doneCount - a.doneCount;
+      });
+
+      // ===== カード表示 =====
+      userDataList.forEach(user => {
+        const card = document.createElement("div");
+        card.className = "card";
+
+        card.innerHTML = `
+          <h3>${user.name}</h3>
+          <div><strong>UID:</strong> ${user.uid}</div>
+          <div><strong>達成数:</strong> ${user.doneCount}</div>
+          <div><strong>ビンゴ数:</strong> ${user.bingoCount}</div>
+          <div><strong>達成済みマス:</strong> ${user.doneCodes.join(", ")}</div>
+          <button class="delete-btn" data-uid="${user.uid}">削除</button>
+        `;
+
+        // 削除ボタン
+        card.querySelector(".delete-btn").onclick = async () => {
+          if (confirm(`${user.name}（UID: ${user.uid}）を削除しますか？`)) {
+            await db.collection("users").doc(user.uid).delete();
+            alert("削除しました");
+            loadUsers();
+          }
+        };
+
+        userList.appendChild(card);
+      });
+    }
+
+    // ===== ビンゴ数計算 =====
+    function calcBingo(status) {
+      const grid = Array.from({ length: 5 }, () => Array(5).fill(false));
+
+      for (let r = 0; r < 5; r++) {
+        for (let c = 0; c < 5; c++) {
+          const code = `C${r}${c}`;
+          grid[r][c] = status[code];
+        }
+      }
+
+      let count = 0;
+
+      // 横
+      for (let r = 0; r < 5; r++) {
+        if (grid[r].every(v => v)) count++;
+      }
+
+      // 縦
+      for (let c = 0; c < 5; c++) {
+        let ok = true;
+        for (let r = 0; r < 5; r++) {
+          if (!grid[r][c]) ok = false;
+        }
+        if (ok) count++;
+      }
+
+      // 斜め
+      if ([0,1,2,3,4].every(i => grid[i][i])) count++;
+      if ([0,1,2,3,4].every(i => grid[i][4-i])) count++;
+
+      return count;
+    }
+
+    // 初期読み込み
+    loadUsers();
+  </script>
+</body>
+</html>
