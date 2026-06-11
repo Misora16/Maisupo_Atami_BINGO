@@ -1,0 +1,1 @@
+# Maisupo_Atami_BINGO
